@@ -85,12 +85,17 @@ namespace Cloud5mins.ShortenerTools.Functions
                 // 改善されたURL妥当性チェック
                 try 
                 {
-                    // スペースをエンコードしたURLを作成
-                    string encodedUrl = Uri.EscapeDataString(input.Url.Trim());
-                    
-                    // URIが正しく解析できるかチェック
-                    var uriResult = new Uri(encodedUrl, UriKind.Absolute);
-                    
+                    // 元のURLをトリム
+                    string longUrl = input.Url.Trim();
+
+                    // より柔軟なURL検証
+                    if (!Uri.TryCreate(longUrl, UriKind.Absolute, out Uri uriResult))
+                    {
+                        var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                        await badResponse.WriteAsJsonAsync(new { Message = $"{longUrl} is not a valid URL." });
+                        return badResponse;
+                    }
+
                     // スキーム（プロトコル）が http または https であることを確認
                     if (uriResult.Scheme != Uri.UriSchemeHttp && uriResult.Scheme != Uri.UriSchemeHttps)
                     {
@@ -99,7 +104,7 @@ namespace Cloud5mins.ShortenerTools.Functions
                         return badResponse;
                     }
                 }
-                catch (UriFormatException)
+                catch (Exception)
                 {
                     var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
                     await badResponse.WriteAsJsonAsync(new { Message = $"{input.Url} is not a valid URL." });
