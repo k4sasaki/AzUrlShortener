@@ -31,6 +31,7 @@ using System.Net;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Web;
 
 namespace Cloud5mins.ShortenerTools.Functions
 {
@@ -83,26 +84,45 @@ namespace Cloud5mins.ShortenerTools.Functions
                     return badResponse;
                 }
 
-                // Validates if input.url is a valid aboslute url, aka is a complete refrence to the resource, ex: http(s)://google.com
-                if (!Uri.IsWellFormedUriString(input.Url, UriKind.Absolute))
+                // Clean and validate URL
+                string cleanUrl = input.Url.Trim();
+                
+                // Try to decode the URL if it's already encoded to prevent double-encoding
+                try {
+                    cleanUrl = HttpUtility.UrlDecode(cleanUrl);
+                } catch {
+                    // If decoding fails, use the original URL
+                    _logger.LogWarning($"Failed to decode URL: {cleanUrl}. Using original URL.");
+                }
+
+                // Re-encode the URL properly
+                cleanUrl = HttpUtility.UrlEncodeUnicode(cleanUrl);
+
+                // Ensure the URL starts with http:// or https://
+                if (!cleanUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && 
+                    !cleanUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                {
+                    cleanUrl = "https://" + cleanUrl;
+                }
+
+                // Create Uri object to validate URL
+                if (!Uri.TryCreate(cleanUrl, UriKind.Absolute, out Uri uriResult))
                 {
                     var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badResponse.WriteAsJsonAsync(new { Message = $"{input.Url} is not a valid absolute Url. The Url parameter must start with 'http://' or 'http://'." });
+                    await badResponse.WriteAsJsonAsync(new { Message = $"The provided URL '{input.Url}' is not a valid URL." });
                     return badResponse;
                 }
 
                 StorageTableHelper stgHelper = new StorageTableHelper(_settings.DataStorage);
 
-                string longUrl = input.Url.Trim();
                 string vanity = string.IsNullOrWhiteSpace(input.Vanity) ? "" : input.Vanity.Trim();
                 string title = string.IsNullOrWhiteSpace(input.Title) ? "" : input.Title.Trim();
-
 
                 ShortUrlEntity newRow;
 
                 if (!string.IsNullOrEmpty(vanity))
                 {
-                    newRow = new ShortUrlEntity(longUrl, vanity, title, input.Schedules);
+                    newRow = new ShortUrlEntity(cleanUrl, vanity, title, input.Schedules);
                     if (await stgHelper.IfShortUrlEntityExist(newRow))
                     {
                         var badResponse = req.CreateResponse(HttpStatusCode.Conflict);
@@ -112,7 +132,7 @@ namespace Cloud5mins.ShortenerTools.Functions
                 }
                 else
                 {
-                    newRow = new ShortUrlEntity(longUrl, await Utility.GetValidEndUrl(vanity, stgHelper), title, input.Schedules);
+                    newRow = new ShortUrlEntity(cleanUrl, await Utility.GetValidEndUrl(vanity, stgHelper), title, input.Schedules);
                 }
 
                 await stgHelper.SaveShortUrlEntity(newRow);
