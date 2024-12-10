@@ -31,11 +31,9 @@ using System.Net;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Web;
 
 namespace Cloud5mins.ShortenerTools.Functions
 {
-
     public class UrlCreate
     {
         private readonly ILogger _logger;
@@ -84,37 +82,33 @@ namespace Cloud5mins.ShortenerTools.Functions
                     return badResponse;
                 }
 
-                // Clean and validate URL
-                string cleanUrl = input.Url.Trim();
-                
-                // Try to decode the URL if it's already encoded to prevent double-encoding
-                try {
-                    cleanUrl = HttpUtility.UrlDecode(cleanUrl);
-                } catch {
-                    // If decoding fails, use the original URL
-                    _logger.LogWarning($"Failed to decode URL: {cleanUrl}. Using original URL.");
-                }
-
-                // Re-encode the URL properly
-                cleanUrl = HttpUtility.UrlEncodeUnicode(cleanUrl);
-
-                // Ensure the URL starts with http:// or https://
-                if (!cleanUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && 
-                    !cleanUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                // 改善されたURL妥当性チェック
+                try 
                 {
-                    cleanUrl = "https://" + cleanUrl;
+                    // スペースをエンコードしたURLを作成
+                    string encodedUrl = Uri.EscapeDataString(input.Url.Trim());
+                    
+                    // URIが正しく解析できるかチェック
+                    var uriResult = new Uri(encodedUrl, UriKind.Absolute);
+                    
+                    // スキーム（プロトコル）が http または https であることを確認
+                    if (uriResult.Scheme != Uri.UriSchemeHttp && uriResult.Scheme != Uri.UriSchemeHttps)
+                    {
+                        var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                        await badResponse.WriteAsJsonAsync(new { Message = "The url must start with 'http://' or 'https://'" });
+                        return badResponse;
+                    }
                 }
-
-                // Create Uri object to validate URL
-                if (!Uri.TryCreate(cleanUrl, UriKind.Absolute, out Uri uriResult))
+                catch (UriFormatException)
                 {
                     var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badResponse.WriteAsJsonAsync(new { Message = $"The provided URL '{input.Url}' is not a valid URL." });
+                    await badResponse.WriteAsJsonAsync(new { Message = $"{input.Url} is not a valid URL." });
                     return badResponse;
                 }
 
                 StorageTableHelper stgHelper = new StorageTableHelper(_settings.DataStorage);
 
+                string longUrl = input.Url.Trim();
                 string vanity = string.IsNullOrWhiteSpace(input.Vanity) ? "" : input.Vanity.Trim();
                 string title = string.IsNullOrWhiteSpace(input.Title) ? "" : input.Title.Trim();
 
@@ -122,7 +116,7 @@ namespace Cloud5mins.ShortenerTools.Functions
 
                 if (!string.IsNullOrEmpty(vanity))
                 {
-                    newRow = new ShortUrlEntity(cleanUrl, vanity, title, input.Schedules);
+                    newRow = new ShortUrlEntity(longUrl, vanity, title, input.Schedules);
                     if (await stgHelper.IfShortUrlEntityExist(newRow))
                     {
                         var badResponse = req.CreateResponse(HttpStatusCode.Conflict);
@@ -132,7 +126,7 @@ namespace Cloud5mins.ShortenerTools.Functions
                 }
                 else
                 {
-                    newRow = new ShortUrlEntity(cleanUrl, await Utility.GetValidEndUrl(vanity, stgHelper), title, input.Schedules);
+                    newRow = new ShortUrlEntity(longUrl, await Utility.GetValidEndUrl(vanity, stgHelper), title, input.Schedules);
                 }
 
                 await stgHelper.SaveShortUrlEntity(newRow);
