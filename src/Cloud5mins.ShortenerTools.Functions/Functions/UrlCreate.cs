@@ -34,6 +34,7 @@ using System.Threading.Tasks;
 
 namespace Cloud5mins.ShortenerTools.Functions
 {
+
     public class UrlCreate
     {
         private readonly ILogger _logger;
@@ -82,32 +83,11 @@ namespace Cloud5mins.ShortenerTools.Functions
                     return badResponse;
                 }
 
-                // 改善されたURL妥当性チェック
-                try 
-                {
-                    // 元のURLをトリム
-                    string longUrl = input.Url.Trim();
-
-                    // より柔軟なURL検証
-                    if (!Uri.TryCreate(longUrl, UriKind.Absolute, out Uri uriResult))
-                    {
-                        var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                        await badResponse.WriteAsJsonAsync(new { Message = $"{longUrl} is not a valid URL." });
-                        return badResponse;
-                    }
-
-                    // スキーム（プロトコル）が http または https であることを確認
-                    if (uriResult.Scheme != Uri.UriSchemeHttp && uriResult.Scheme != Uri.UriSchemeHttps)
-                    {
-                        var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                        await badResponse.WriteAsJsonAsync(new { Message = "The url must start with 'http://' or 'https://'" });
-                        return badResponse;
-                    }
-                }
-                catch (Exception)
+                // Validates if input.url is a valid aboslute url, aka is a complete refrence to the resource, ex: http(s)://google.com
+                if (!Uri.IsWellFormedUriString(input.Url, UriKind.Absolute))
                 {
                     var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badResponse.WriteAsJsonAsync(new { Message = $"{input.Url} is not a valid URL." });
+                    await badResponse.WriteAsJsonAsync(new { Message = $"{input.Url} is not a valid absolute Url. The Url parameter must start with 'http://' or 'http://'." });
                     return badResponse;
                 }
 
@@ -116,6 +96,7 @@ namespace Cloud5mins.ShortenerTools.Functions
                 string longUrl = input.Url.Trim();
                 string vanity = string.IsNullOrWhiteSpace(input.Vanity) ? "" : input.Vanity.Trim();
                 string title = string.IsNullOrWhiteSpace(input.Title) ? "" : input.Title.Trim();
+
 
                 ShortUrlEntity newRow;
 
