@@ -29,12 +29,10 @@ using System;
 using System.IO;
 using System.Net;
 using System.Text.Json;
-using System.Threading;
 using System.Threading.Tasks;
 
 namespace Cloud5mins.ShortenerTools.Functions
 {
-
     public class UrlCreate
     {
         private readonly ILogger _logger;
@@ -75,38 +73,35 @@ namespace Cloud5mins.ShortenerTools.Functions
                     }
                 }
 
-                // If the Url parameter only contains whitespaces or is empty return with BadRequest.
-                if (string.IsNullOrWhiteSpace(input.Url))
+                // 半角スペースを許容するカスタムバリデーション
+                string longUrl = input.Url;
+                if (string.IsNullOrWhiteSpace(longUrl))
                 {
                     var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badResponse.WriteAsJsonAsync(new { Message = "The url parameter can not be empty." });
+                    await badResponse.WriteAsJsonAsync(new { Message = "The url parameter cannot be empty." });
                     return badResponse;
                 }
 
-                // Validates if input.url is a valid aboslute url, aka is a complete refrence to the resource, ex: http(s)://google.com
-                if (!Uri.IsWellFormedUriString(input.Url, UriKind.Absolute))
+                if (!IsCustomUrlValid(longUrl))
                 {
                     var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badResponse.WriteAsJsonAsync(new { Message = $"{input.Url} is not a valid absolute Url. The Url parameter must start with 'http://' or 'http://'." });
+                    await badResponse.WriteAsJsonAsync(new { Message = $"{longUrl} is not a valid URL. Please check your input." });
                     return badResponse;
                 }
 
+                // 後続の処理
                 StorageTableHelper stgHelper = new StorageTableHelper(_settings.DataStorage);
-
-                string longUrl = input.Url.Trim();
                 string vanity = string.IsNullOrWhiteSpace(input.Vanity) ? "" : input.Vanity.Trim();
                 string title = string.IsNullOrWhiteSpace(input.Title) ? "" : input.Title.Trim();
 
-
                 ShortUrlEntity newRow;
-
                 if (!string.IsNullOrEmpty(vanity))
                 {
                     newRow = new ShortUrlEntity(longUrl, vanity, title, input.Schedules);
                     if (await stgHelper.IfShortUrlEntityExist(newRow))
                     {
                         var badResponse = req.CreateResponse(HttpStatusCode.Conflict);
-                        await badResponse.WriteAsJsonAsync(new { Message = "This Short URL already exist." });
+                        await badResponse.WriteAsJsonAsync(new { Message = "This Short URL already exists." });
                         return badResponse;
                     }
                 }
@@ -120,7 +115,7 @@ namespace Cloud5mins.ShortenerTools.Functions
                 var host = string.IsNullOrEmpty(_settings.CustomDomain) ? req.Url.Host : _settings.CustomDomain.ToString();
                 result = new ShortResponse(host, newRow.Url, newRow.RowKey, newRow.Title);
 
-                _logger.LogInformation("Short Url created.");
+                _logger.LogInformation("Short URL created.");
             }
             catch (Exception ex)
             {
@@ -135,6 +130,27 @@ namespace Cloud5mins.ShortenerTools.Functions
             await response.WriteAsJsonAsync(result);
 
             return response;
+        }
+
+        // カスタムバリデーションメソッド
+        private bool IsCustomUrlValid(string url)
+        {
+            // URL が null または空の場合は無効
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                return false;
+            }
+
+            // 半角スペースを含む場合でも許容
+            try
+            {
+                var uri = new Uri(url, UriKind.Absolute);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
     }
 }
